@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Suivi de vol - commandantrobsim</title>
+
+<!-- Leaflet CSS -->
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-sA+eUVDXjbBvtdxnjb0jO9F6iq9g9YJ5J+EYThX1zQE="
+  crossorigin=""
+/>
+
+<style>
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f0f0f0;
+    color: #222;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    padding: 10px 20px;
+    background: #0078d7;
+    color: white;
+    font-weight: bold;
+    font-size: 1.2em;
+  }
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 20px;
+  }
+  form {
+    background: white;
+    padding: 15px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.15);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    align-items: center;
+  }
+  label {
+    font-size: 0.9em;
+    flex: 1 1 130px;
+  }
+  input, select {
+    flex: 1 1 150px;
+    padding: 6px 8px;
+    font-size: 1em;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+  }
+  button {
+    background: #0078d7;
+    border: none;
+    color: white;
+    padding: 10px 16px;
+    font-size: 1em;
+    border-radius: 6px;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+  button:hover {
+    background: #005fa3;
+  }
+  #info {
+    background: white;
+    padding: 12px 15px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+    font-size: 1em;
+    line-height: 1.4em;
+  }
+  #map {
+    flex: 1;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+  }
+  @media (max-width: 600px) {
+    form {
+      flex-direction: column;
+      gap: 10px;
+    }
+    label, input, select, button {
+      flex: 1 1 100%;
+    }
+  }
+</style>
+
+</head>
+<body>
+
+<header>Suivi de vol - commandantrobsim - A330-200</header>
+
+<main>
+
+<form id="flightForm">
+  <label>
+    Latitude (°) :
+    <input type="number" step="0.0001" id="lat" required value="45.5" />
+  </label>
+  <label>
+    Longitude (°) :
+    <input type="number" step="0.0001" id="lon" required value="-73.6" />
+  </label>
+  <label>
+    Altitude (ft) :
+    <input type="number" id="alt" required value="35000" />
+  </label>
+  <label>
+    Vitesse (kt) :
+    <input type="number" id="spd" required value="450" />
+  </label>
+  <label>
+    Cap (°) :
+    <input type="number" id="hdg" required value="270" min="0" max="360" />
+  </label>
+  <label>
+    Départ (ICAO) :
+    <input type="text" id="dep" maxlength="4" value="CYUL" />
+  </label>
+  <label>
+    Arrivée (ICAO) :
+    <input type="text" id="arr" maxlength="4" value="LFPG" />
+  </label>
+  <label>
+    Départ (local) :
+    <input type="datetime-local" id="depTime" />
+  </label>
+  <label>
+    Arrivée estimée (local) :
+    <input type="datetime-local" id="arrTime" />
+  </label>
+  <button type="submit">Générer lien de suivi</button>
+</form>
+
+<div id="info">
+  <p><b>Infos du vol :</b></p>
+  <p id="infoText">Remplis le formulaire et clique sur "Générer lien de suivi".</p>
+  <p><b>Lien partageable :</b> <a href="#" id="shareLink" target="_blank" rel="noopener noreferrer">—</a></p>
+</div>
+
+<div id="map" style="height: 400px;"></div>
+
+<!-- Leaflet JS -->
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-o9N1j4dr79TrENcwGXsY7g2NKkMe3KeRgUK6B6vHZcM="
+  crossorigin=""
+></script>
+
+<script>
+// Mapbox Satellite Clair
+const mapboxToken = 'pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJja3Fma2g0bWswMTZnMnFvMzU3cGFodDJkIn0.PzVZTJO9G1pAznCx8V6M5Q'; // Remplace avec ton token Mapbox gratuit si tu en as un
+const satelliteUrl = `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/{z}/{x}/{y}?access_token=${mapboxToken}`;
+
+// Lecture des paramètres dans l’URL
+function getUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    lat: parseFloat(params.get('lat')) || 45.5,
+    lon: parseFloat(params.get('lon')) || -73.6,
+    alt: parseInt(params.get('alt')) || 35000,
+    spd: parseInt(params.get('spd')) || 450,
+    hdg: parseInt(params.get('hdg')) || 270,
+    dep: params.get('dep') || 'CYUL',
+    arr: params.get('arr') || 'LFPG',
+    depTime: params.get('depTime') || '',
+    arrTime: params.get('arrTime') || '',
+  };
+}
+
+// Initialisation de la carte
+const map = L.map('map').setView([45.5, -73.6], 5);
+L.tileLayer(satelliteUrl, {
+  maxZoom: 18,
+  tileSize: 512,
+  zoomOffset: -1,
+  attribution:
+    '© <a href="https://www.mapbox.com/about/maps/">Mapbox</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+}).addTo(map);
+
+// Icône avion simple avec rotation
+const planeIcon = L.icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+});
+
+// Marker avion
+let planeMarker = L.marker([45.5, -73.6], { icon: planeIcon, rotationAngle: 270 }).addTo(map);
+
+// Mise à jour de l’icône avec rotation Leaflet
+L.Marker.include({
+  setRotationAngle: function(angle) {
+    this._icon.style.transform = `rotate(${angle}deg)`;
+  },
+});
+
+// Fonction pour mettre à jour la position et les infos
+function updateFlightInfo(data) {
+  // Mise à jour du marker
+  const latlng = L.latLng(data.lat, data.lon);
+  planeMarker.setLatLng(latlng);
+  planeMarker.setRotationAngle(data.hdg);
+
+  // Centre la carte sur la position
+  map.panTo(latlng);
+
+  // Affiche les infos texte
+  const depTimeStr = data.depTime ? new Date(data.depTime).toLocaleString('fr-CA', { timeZone: 'America/Montreal' }) : '—';
+  const arrTimeStr = data.arrTime ? new Date(data.arrTime).toLocaleString('fr-CA', { timeZone: 'America/Montreal' }) : '—';
+
+  document.getElementById('infoText').innerHTML = `
+    Avion : <b>A330-200</b><br />
+    Position : ${data.lat.toFixed(4)}, ${data.lon.toFixed(4)}<br />
+    Altitude : ${data.alt} ft<br />
+    Vitesse : ${data.spd} kt<br />
+    Cap : ${data.hdg}°<br />
+    Départ : ${data.dep} à ${depTimeStr}<br />
+    Arrivée estimée : ${data.arr} à ${arrTimeStr}
+  `;
+}
+
+// Fonction pour générer le lien avec paramètres
+function generateLink(data) {
+  const baseUrl = window.location.origin + window.location.pathname;
+  const params = new URLSearchParams({
+    lat: data.lat,
+    lon: data.lon,
+    alt: data.alt,
+    spd: data.spd,
+    hdg: data.hdg,
+    dep: data.dep,
+    arr: data.arr,
+    depTime: data.depTime,
+    arrTime: data.arrTime,
+  });
+  return `${baseUrl}?${params.toString()}`;
+}
+
+// Gère le submit du formulaire
+document.getElementById('flightForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+
+  // Récupère les valeurs du formulaire
+  const data = {
+    lat: parseFloat(document.getElementById('lat').value),
+    lon: parseFloat(document.getElementById('lon').value),
+    alt: parseInt(document.getElementById('alt').value),
+    spd: parseInt(document.getElementById('spd').value),
+    hdg: parseInt(document.getElementById('hdg').value),
+    dep: document.getElementById('dep').value.toUpperCase(),
+    arr: document.getElementById('arr').value.toUpperCase(),
+    depTime: document.getElementById('depTime').value,
+    arrTime: document.getElementById('arrTime').value,
+  };
+
+  // Mise à jour de la carte et infos
+  updateFlightInfo(data);
+
+  // Génération du lien à partager
+  const link = generateLink(data);
+  const shareLinkElem = document.getElementById('shareLink');
+  shareLinkElem.href = link;
+  shareLinkElem.textContent = link;
+});
+
+// Au chargement de la page, on lit les paramètres et on met à jour la carte et formulaire
+window.addEventListener('load', () => {
+  const params = getUrlParams();
+
+  // Remplit le formulaire avec les paramètres
+  document.getElementById('lat').value = params.lat;
+  document.getElementById('lon').value = params.lon;
+  document.getElementById('alt').value = params.alt;
+  document.getElementById('spd').value = params.spd;
+  document.getElementById('hdg').value = params.hdg;
+  document.getElementById('dep').value = params.dep;
+  document.getElementById('arr').value = params.arr;
+  document.getElementById('depTime').value = params.depTime;
+  document.get
